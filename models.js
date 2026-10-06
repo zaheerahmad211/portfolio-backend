@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 
+// Use a large string field for image URLs (supports base64 data URLs)
+const imageField = { type: String, default: '' };
+
 const adminSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true }
@@ -8,7 +11,7 @@ const adminSchema = new mongoose.Schema({
 const projectSchema = new mongoose.Schema({
   title: String,
   description: String,
-  image: String,
+  image: imageField,
   technologies: [String],
   category: String,
   githubUrl: String,
@@ -21,8 +24,8 @@ const projectSchema = new mongoose.Schema({
 const certificationSchema = new mongoose.Schema({
   title: String,
   organization: String,
-  image: String,
-  certificateUrl: String,
+  image: imageField,
+  certificateUrl: imageField,
   issueDate: Date,
   credentialId: String,
   credentialUrl: String,
@@ -34,7 +37,7 @@ const achievementSchema = new mongoose.Schema({
   title: String,
   description: String,
   date: Date,
-  image: String,
+  image: imageField,
   externalUrl: String,
   createdAt: { type: Date, default: Date.now }
 });
@@ -54,7 +57,7 @@ const experienceSchema = new mongoose.Schema({
 const skillSchema = new mongoose.Schema({
   name: String,
   category: String,
-  icon: String, // lucide icon name or image url
+  icon: imageField,   // stores base64 data URL of the skill logo
   proficiency: Number,
   createdAt: { type: Date, default: Date.now }
 });
@@ -62,7 +65,7 @@ const skillSchema = new mongoose.Schema({
 const serviceSchema = new mongoose.Schema({
   title: String,
   description: String,
-  icon: String,
+  icon: imageField,
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -79,7 +82,7 @@ const settingSchema = new mongoose.Schema({
   name: String,
   title: String,
   bio: String,
-  profileImage: String,
+  profileImage: imageField,   // base64 data URL of profile photo
   email: String,
   phone: String,
   location: String,

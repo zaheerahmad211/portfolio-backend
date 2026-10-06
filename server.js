@@ -9,9 +9,6 @@ const dotenv    = require('dotenv');
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const multer    = require('multer');
-const path      = require('path');
-const fs        = require('fs');
-const os        = require('os');          // ← NEW: OS module for /tmp
 
 // Load models (Project, Certification, …) and auth middleware
 const {
@@ -34,7 +31,6 @@ const app = express();
 
 /*=====================================================
    CORS – manual, bulletproof implementation
-   (does NOT depend on CLIENT_URL env var)
 =====================================================*/
 const allowedOrigins = [
   'http://localhost:5173',
@@ -46,22 +42,17 @@ const allowedOrigins = [
 const uniqueOrigins = [...new Set(allowedOrigins)];
 console.log('Allowed CORS Origins:', uniqueOrigins);
 
-// Set CORS headers on EVERY response (including errors)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
   if (origin && uniqueOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // No origin = Postman, server-to-server, etc.
-    // Don't set Allow-Origin (not needed)
   }
 
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 
-  // Immediately respond to OPTIONS preflight – don't hit DB middleware
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -70,51 +61,34 @@ app.use((req, res, next) => {
 });
 
 /*=====================================================
-   BODY PARSER
+   BODY PARSER  (increased limit for base64 images)
 =====================================================*/
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 /*=====================================================
-   FILE UPLOAD – works both locally and on Vercel
+   FILE UPLOAD – Base64 stored in MongoDB
+   ✅ No external service needed
+   ✅ Works on Vercel (no filesystem)
+   ✅ Images saved permanently in your existing DB
+   ⚠  Keep images under 2 MB for best performance
 =====================================================*/
-let uploadsPath;
 
-// Local development → ./uploads folder
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
-  uploadsPath = path.join(__dirname, 'uploads');
-} else {
-  // Vercel production → OS temporary directory (/tmp)
-  uploadsPath = path.join(os.tmpdir(), 'uploads');
-}
-
-// Ensure the folder exists (create once at startup)
-if (!fs.existsSync(uploadsPath)) {
-  try {
-    fs.mkdirSync(uploadsPath, { recursive: true });
-  } catch (err) {
-    console.error('Failed to create uploads folder:', err);
-  }
-}
-
-// Serve uploaded files statically
-app.use('/uploads', express.static(uploadsPath));
-
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsPath),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${Date.now()}-${Math.round(Math.random()*1e9)}${ext}`);
-  }
+// Store file in memory (never touches the filesystem)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB hard limit
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
-// Unified upload endpoint (same for dev & prod)
+// Upload endpoint – converts file to base64 data-URL and returns it
 app.post('/api/upload', authMiddleware, upload.single('file'), (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-    return res.json({ url: `/uploads/${req.file.filename}` });
+
+    const base64 = req.file.buffer.toString('base64');
+    const dataUrl = `data:${req.file.mimetype};base64,${base64}`;
+
+    return res.json({ url: dataUrl });
   } catch (error) {
     console.error('File upload error:', error);
     return res.status(500).json({ message: 'File upload failed' });
@@ -161,7 +135,7 @@ const connectDB = async () => {
 };
 
 /*=====================================================
-   DATABASE MIDDLEWARE (ensure connection on each request)
+   DATABASE MIDDLEWARE
 =====================================================*/
 app.use(async (req, res, next) => {
   try {
@@ -199,14 +173,10 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const admin = await Admin.findOne({ email });
-    if (!admin) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
+    if (!admin) return res.status(400).json({ message: 'Invalid credentials' });
 
     const isMatch = await bcrypt.compare(password, admin.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
+    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
     const token = jwt.sign(
       { id: admin._id },
@@ -225,29 +195,24 @@ app.post('/api/auth/login', async (req, res) => {
    GENERIC CRUD ROUTES
 =====================================================*/
 const createCrudRoutes = (Model, routePath) => {
-  // GET all
   app.get(`/api/${routePath}`, async (req, res) => {
     try {
       const items = await Model.find().sort({ createdAt: -1 });
       return res.json(items);
     } catch (error) {
-      console.error(`GET /api/${routePath}:`, error);
       return res.status(500).json({ message: error.message });
     }
   });
 
-  // CREATE
   app.post(`/api/${routePath}`, authMiddleware, async (req, res) => {
     try {
       const savedItem = await new Model(req.body).save();
       return res.status(201).json(savedItem);
     } catch (error) {
-      console.error(`POST /api/${routePath}:`, error);
       return res.status(400).json({ message: error.message });
     }
   });
 
-  // UPDATE
   app.put(`/api/${routePath}/:id`, authMiddleware, async (req, res) => {
     try {
       const updated = await Model.findByIdAndUpdate(
@@ -258,25 +223,21 @@ const createCrudRoutes = (Model, routePath) => {
       if (!updated) return res.status(404).json({ message: 'Item not found' });
       return res.json(updated);
     } catch (error) {
-      console.error(`PUT /api/${routePath}:`, error);
       return res.status(400).json({ message: error.message });
     }
   });
 
-  // DELETE
   app.delete(`/api/${routePath}/:id`, authMiddleware, async (req, res) => {
     try {
       const deleted = await Model.findByIdAndDelete(req.params.id);
       if (!deleted) return res.status(404).json({ message: 'Item not found' });
       return res.json({ message: 'Deleted successfully' });
     } catch (error) {
-      console.error(`DELETE /api/${routePath}:`, error);
       return res.status(500).json({ message: error.message });
     }
   });
 };
 
-// Register CRUD collections
 createCrudRoutes(Project,       'projects');
 createCrudRoutes(Certification, 'certifications');
 createCrudRoutes(Achievement,   'achievements');
@@ -286,21 +247,18 @@ createCrudRoutes(Service,       'services');
 createCrudRoutes(Education,     'education');
 
 /*=====================================================
-   MESSAGES (public & admin)
+   MESSAGES
 =====================================================*/
-// PUBLIC MESSAGE SEND
 app.post('/api/messages', async (req, res) => {
   try {
     const newMessage = new Message(req.body);
     await newMessage.save();
     return res.status(201).json({ message: 'Message sent successfully' });
   } catch (error) {
-    console.error('Message error:', error);
     return res.status(400).json({ message: error.message });
   }
 });
 
-// ADMIN GET ALL MESSAGES
 app.get('/api/messages', authMiddleware, async (req, res) => {
   try {
     const msgs = await Message.find().sort({ createdAt: -1 });
@@ -310,7 +268,6 @@ app.get('/api/messages', authMiddleware, async (req, res) => {
   }
 });
 
-// ADMIN DELETE MESSAGE
 app.delete('/api/messages/:id', authMiddleware, async (req, res) => {
   try {
     const del = await Message.findByIdAndDelete(req.params.id);
@@ -322,7 +279,7 @@ app.delete('/api/messages/:id', authMiddleware, async (req, res) => {
 });
 
 /*=====================================================
-   SETTINGS (public read, admin update)
+   SETTINGS
 =====================================================*/
 app.get('/api/settings', async (req, res) => {
   try {
@@ -352,13 +309,10 @@ app.put('/api/settings', authMiddleware, async (req, res) => {
 });
 
 /*=====================================================
-   404 HANDLER
+   404 & ERROR HANDLERS
 =====================================================*/
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
 
-/*=====================================================
-   GLOBAL ERROR HANDLER
-=====================================================*/
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   return res.status(500).json({
@@ -374,7 +328,4 @@ if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
-/*=====================================================
-   EXPORT FOR VERCEL
-=====================================================*/
 module.exports = app;
