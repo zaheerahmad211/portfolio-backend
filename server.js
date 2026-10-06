@@ -33,34 +33,41 @@ dotenv.config();
 const app = express();
 
 /*=====================================================
-   CORS – allow only the whitelisted origins (including Vercel preview)
+   CORS – manual, bulletproof implementation
+   (does NOT depend on CLIENT_URL env var)
 =====================================================*/
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  'https://portfolio-frontend-one-woad-13.vercel.app',
   process.env.CLIENT_URL
 ].filter(Boolean);
 
-// Make them unique – avoids duplicate checks that cause a pre‑flight failure
 const uniqueOrigins = [...new Set(allowedOrigins)];
 console.log('Allowed CORS Origins:', uniqueOrigins);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Postman / Thunder Client have no origin – allow them
-      if (!origin) return callback(null, true);
+// Set CORS headers on EVERY response (including errors)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
 
-      if (uniqueOrigins.includes(origin)) return callback(null, true);
+  if (origin && uniqueOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // No origin = Postman, server-to-server, etc.
+    // Don't set Allow-Origin (not needed)
+  }
 
-      console.error('CORS blocked origin:', origin);
-      return callback(new Error(`CORS blocked: ${origin}`));
-    },
-    credentials: true,
-    methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-    allowedHeaders: ['Content-Type','Authorization']
-  })
-);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+
+  // Immediately respond to OPTIONS preflight – don't hit DB middleware
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 /*=====================================================
    BODY PARSER
