@@ -32,37 +32,48 @@ const app = express();
    CORS
 ===================================================== */
 
-// Current production frontend + local development
+// Current frontend + local development
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-
-  // Current Vercel frontend
   'https://portfolio-frontend-one-woad-13.vercel.app',
-
-  // Vercel environment variable
   process.env.CLIENT_URL
 ].filter(Boolean);
 
-console.log('Allowed CORS Origins:', allowedOrigins);
+// Remove duplicate origins
+const uniqueOrigins = [
+  ...new Set(allowedOrigins)
+];
+
+console.log(
+  'Allowed CORS Origins:',
+  uniqueOrigins
+);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests without an Origin
-      // e.g. Postman, Thunder Client, server-to-server
+      // Allow requests without Origin
+      // e.g. Postman / Thunder Client
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      if (
+        uniqueOrigins.includes(origin)
+      ) {
         return callback(null, true);
       }
 
-      console.error('CORS blocked origin:', origin);
+      console.error(
+        'CORS blocked origin:',
+        origin
+      );
 
       return callback(
-        new Error(`CORS blocked: ${origin}`)
+        new Error(
+          `CORS blocked: ${origin}`
+        )
       );
     },
 
@@ -83,8 +94,15 @@ app.use(
   })
 );
 
-// Explicitly handle browser preflight requests
-app.options('*', cors());
+/*
+   IMPORTANT:
+   Do NOT use:
+
+   app.options('*', cors());
+
+   Express 5 throws:
+   PathError: Missing parameter name at index 1: *
+*/
 
 /* =====================================================
    BODY PARSER
@@ -115,16 +133,22 @@ if (
   !process.env.VERCEL &&
   !__dirname.includes('/var/task')
 ) {
-  const uploadsPath = path.join(
-    __dirname,
-    'uploads'
-  );
+  const uploadsPath =
+    path.join(
+      __dirname,
+      'uploads'
+    );
 
-  if (!fs.existsSync(uploadsPath)) {
+  if (
+    !fs.existsSync(uploadsPath)
+  ) {
     try {
-      fs.mkdirSync(uploadsPath, {
-        recursive: true
-      });
+      fs.mkdirSync(
+        uploadsPath,
+        {
+          recursive: true
+        }
+      );
     } catch (err) {
       console.error(
         'Failed to create uploads directory:',
@@ -135,33 +159,49 @@ if (
 
   app.use(
     '/uploads',
-    express.static(uploadsPath)
+    express.static(
+      uploadsPath
+    )
   );
 
-  const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      cb(null, uploadsPath);
-    },
+  const storage =
+    multer.diskStorage({
+      destination: (
+        req,
+        file,
+        cb
+      ) => {
+        cb(
+          null,
+          uploadsPath
+        );
+      },
 
-    filename: (req, file, cb) => {
-      const extension = path.extname(
-        file.originalname
-      );
+      filename: (
+        req,
+        file,
+        cb
+      ) => {
+        const extension =
+          path.extname(
+            file.originalname
+          );
 
-      cb(
-        null,
-        `${Date.now()}-${Math.round(
-          Math.random() * 1e9
-        )}${extension}`
-      );
-    }
-  });
+        cb(
+          null,
+          `${Date.now()}-${Math.round(
+            Math.random() * 1e9
+          )}${extension}`
+        );
+      }
+    });
 
   upload = multer({
     storage,
 
     limits: {
-      fileSize: 5 * 1024 * 1024
+      fileSize:
+        5 * 1024 * 1024
     }
   });
 }
@@ -174,12 +214,15 @@ let dbPromise = null;
 
 const connectDB = async () => {
   if (
-    mongoose.connection.readyState === 1
+    mongoose.connection.readyState ===
+    1
   ) {
     return;
   }
 
-  if (!process.env.MONGO_URI) {
+  if (
+    !process.env.MONGO_URI
+  ) {
     throw new Error(
       'MONGO_URI is not defined'
     );
@@ -189,7 +232,9 @@ const connectDB = async () => {
     process.env.MONGO_URI
   );
 
-  console.log('MongoDB connected');
+  console.log(
+    'MongoDB connected'
+  );
 
   /* =================================================
      DEFAULT ADMIN
@@ -198,7 +243,9 @@ const connectDB = async () => {
   const adminCount =
     await Admin.countDocuments();
 
-  if (adminCount === 0) {
+  if (
+    adminCount === 0
+  ) {
     const password =
       process.env.ADMIN_PASSWORD ||
       'admin123';
@@ -214,7 +261,8 @@ const connectDB = async () => {
         process.env.ADMIN_EMAIL ||
         'admin@example.com',
 
-      password: hashedPassword
+      password:
+        hashedPassword
     });
 
     console.log(
@@ -229,9 +277,12 @@ const connectDB = async () => {
   const settingCount =
     await Setting.countDocuments();
 
-  if (settingCount === 0) {
+  if (
+    settingCount === 0
+  ) {
     await Setting.create({
-      name: 'Zaheer Ahmed',
+      name:
+        'Zaheer Ahmed',
 
       title:
         'Website Developer / MERN Stack Developer',
@@ -262,28 +313,34 @@ const connectDB = async () => {
    DATABASE CONNECTION CACHE
 ===================================================== */
 
-const ensureDB = async () => {
-  if (!dbPromise) {
-    dbPromise =
-      connectDB().catch(
-        (error) => {
-          dbPromise = null;
-          throw error;
-        }
-      );
-  }
+const ensureDB =
+  async () => {
+    if (!dbPromise) {
+      dbPromise =
+        connectDB().catch(
+          (error) => {
+            dbPromise = null;
+            throw error;
+          }
+        );
+    }
 
-  return dbPromise;
-};
+    return dbPromise;
+  };
 
 /* =====================================================
    DATABASE MIDDLEWARE
 ===================================================== */
 
 app.use(
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       await ensureDB();
+
       next();
     } catch (error) {
       console.error(
@@ -291,16 +348,18 @@ app.use(
         error
       );
 
-      return res.status(500).json({
-        message:
-          'Database connection failed',
+      return res
+        .status(500)
+        .json({
+          message:
+            'Database connection failed',
 
-        error:
-          process.env.NODE_ENV !==
-          'production'
-            ? error.message
-            : undefined
-      });
+          error:
+            process.env.NODE_ENV !==
+            'production'
+              ? error.message
+              : undefined
+        });
     }
   }
 );
@@ -312,7 +371,7 @@ app.use(
 app.get(
   '/',
   (req, res) => {
-    res.json({
+    return res.json({
       message:
         'Portfolio Backend is running',
 
@@ -325,7 +384,7 @@ app.get(
 app.get(
   '/api/health',
   (req, res) => {
-    res.json({
+    return res.json({
       status:
         'OK',
 
@@ -341,7 +400,10 @@ app.get(
 
 app.post(
   '/api/auth/login',
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const {
         email,
@@ -352,10 +414,12 @@ app.post(
         !email ||
         !password
       ) {
-        return res.status(400).json({
-          message:
-            'Email and password are required'
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              'Email and password are required'
+          });
       }
 
       const admin =
@@ -364,10 +428,12 @@ app.post(
         });
 
       if (!admin) {
-        return res.status(400).json({
-          message:
-            'Invalid credentials'
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              'Invalid credentials'
+          });
       }
 
       const isMatch =
@@ -377,16 +443,19 @@ app.post(
         );
 
       if (!isMatch) {
-        return res.status(400).json({
-          message:
-            'Invalid credentials'
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              'Invalid credentials'
+          });
       }
 
       const token =
         jwt.sign(
           {
-            id: admin._id
+            id:
+              admin._id
           },
 
           process.env.JWT_SECRET ||
@@ -416,10 +485,12 @@ app.post(
         error
       );
 
-      return res.status(500).json({
-        message:
-          'Login failed'
-      });
+      return res
+        .status(500)
+        .json({
+          message:
+            'Login failed'
+        });
     }
   }
 );
@@ -434,14 +505,21 @@ if (upload) {
   app.post(
     '/api/upload',
     authMiddleware,
-    upload.single('file'),
-    (req, res) => {
+    upload.single(
+      'file'
+    ),
+    (
+      req,
+      res
+    ) => {
       try {
         if (!req.file) {
-          return res.status(400).json({
-            message:
-              'No file uploaded'
-          });
+          return res
+            .status(400)
+            .json({
+              message:
+                'No file uploaded'
+            });
         }
 
         return res.json({
@@ -454,10 +532,12 @@ if (upload) {
           error
         );
 
-        return res.status(500).json({
-          message:
-            'File upload failed'
-        });
+        return res
+          .status(500)
+          .json({
+            message:
+              'File upload failed'
+          });
       }
     }
   );
@@ -467,11 +547,16 @@ if (upload) {
   app.post(
     '/api/upload',
     authMiddleware,
-    (req, res) => {
-      return res.status(501).json({
-        message:
-          'File uploads are disabled in production. Use Cloudinary or another cloud storage service.'
-      });
+    (
+      req,
+      res
+    ) => {
+      return res
+        .status(501)
+        .json({
+          message:
+            'File uploads are disabled in production. Use Cloudinary or another cloud storage service.'
+        });
     }
   );
 }
@@ -484,28 +569,37 @@ const createCrudRoutes = (
   Model,
   routePath
 ) => {
+
   /* ================= GET ================= */
 
   app.get(
     `/api/${routePath}`,
-    async (req, res) => {
+    async (
+      req,
+      res
+    ) => {
       try {
         const items =
-          await Model.find().sort({
-            createdAt: -1
-          });
+          await Model.find()
+            .sort({
+              createdAt: -1
+            });
 
-        return res.json(items);
+        return res.json(
+          items
+        );
       } catch (error) {
         console.error(
           `GET /api/${routePath}:`,
           error
         );
 
-        return res.status(500).json({
-          message:
-            error.message
-        });
+        return res
+          .status(500)
+          .json({
+            message:
+              error.message
+          });
       }
     }
   );
@@ -515,27 +609,36 @@ const createCrudRoutes = (
   app.post(
     `/api/${routePath}`,
     authMiddleware,
-    async (req, res) => {
+    async (
+      req,
+      res
+    ) => {
       try {
         const newItem =
-          new Model(req.body);
+          new Model(
+            req.body
+          );
 
         const savedItem =
           await newItem.save();
 
         return res
           .status(201)
-          .json(savedItem);
+          .json(
+            savedItem
+          );
       } catch (error) {
         console.error(
           `POST /api/${routePath}:`,
           error
         );
 
-        return res.status(400).json({
-          message:
-            error.message
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              error.message
+          });
       }
     }
   );
@@ -545,7 +648,10 @@ const createCrudRoutes = (
   app.put(
     `/api/${routePath}/:id`,
     authMiddleware,
-    async (req, res) => {
+    async (
+      req,
+      res
+    ) => {
       try {
         const updatedItem =
           await Model.findByIdAndUpdate(
@@ -553,15 +659,20 @@ const createCrudRoutes = (
             req.body,
             {
               new: true,
-              runValidators: true
+              runValidators:
+                true
             }
           );
 
-        if (!updatedItem) {
-          return res.status(404).json({
-            message:
-              'Item not found'
-          });
+        if (
+          !updatedItem
+        ) {
+          return res
+            .status(404)
+            .json({
+              message:
+                'Item not found'
+            });
         }
 
         return res.json(
@@ -573,10 +684,12 @@ const createCrudRoutes = (
           error
         );
 
-        return res.status(400).json({
-          message:
-            error.message
-        });
+        return res
+          .status(400)
+          .json({
+            message:
+              error.message
+          });
       }
     }
   );
@@ -586,18 +699,25 @@ const createCrudRoutes = (
   app.delete(
     `/api/${routePath}/:id`,
     authMiddleware,
-    async (req, res) => {
+    async (
+      req,
+      res
+    ) => {
       try {
         const deletedItem =
           await Model.findByIdAndDelete(
             req.params.id
           );
 
-        if (!deletedItem) {
-          return res.status(404).json({
-            message:
-              'Item not found'
-          });
+        if (
+          !deletedItem
+        ) {
+          return res
+            .status(404)
+            .json({
+              message:
+                'Item not found'
+            });
         }
 
         return res.json({
@@ -610,10 +730,12 @@ const createCrudRoutes = (
           error
         );
 
-        return res.status(500).json({
-          message:
-            error.message
-        });
+        return res
+          .status(500)
+          .json({
+            message:
+              error.message
+          });
       }
     }
   );
@@ -666,27 +788,36 @@ createCrudRoutes(
 
 app.post(
   '/api/messages',
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const newMessage =
-        new Message(req.body);
+        new Message(
+          req.body
+        );
 
       await newMessage.save();
 
-      return res.status(201).json({
-        message:
-          'Message sent successfully'
-      });
+      return res
+        .status(201)
+        .json({
+          message:
+            'Message sent successfully'
+        });
     } catch (error) {
       console.error(
         'Message error:',
         error
       );
 
-      return res.status(400).json({
-        message:
-          error.message
-      });
+      return res
+        .status(400)
+        .json({
+          message:
+            error.message
+        });
     }
   }
 );
@@ -696,21 +827,27 @@ app.post(
 app.get(
   '/api/messages',
   authMiddleware,
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const messages =
-        await Message.find().sort({
-          createdAt: -1
-        });
+        await Message.find()
+          .sort({
+            createdAt: -1
+          });
 
       return res.json(
         messages
       );
     } catch (error) {
-      return res.status(500).json({
-        message:
-          error.message
-      });
+      return res
+        .status(500)
+        .json({
+          message:
+            error.message
+        });
     }
   }
 );
@@ -720,18 +857,25 @@ app.get(
 app.delete(
   '/api/messages/:id',
   authMiddleware,
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const deletedMessage =
         await Message.findByIdAndDelete(
           req.params.id
         );
 
-      if (!deletedMessage) {
-        return res.status(404).json({
-          message:
-            'Message not found'
-        });
+      if (
+        !deletedMessage
+      ) {
+        return res
+          .status(404)
+          .json({
+            message:
+              'Message not found'
+          });
       }
 
       return res.json({
@@ -739,10 +883,12 @@ app.delete(
           'Message deleted successfully'
       });
     } catch (error) {
-      return res.status(500).json({
-        message:
-          error.message
-      });
+      return res
+        .status(500)
+        .json({
+          message:
+            error.message
+        });
     }
   }
 );
@@ -755,7 +901,10 @@ app.delete(
 
 app.get(
   '/api/settings',
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const setting =
         await Setting.findOne();
@@ -764,10 +913,12 @@ app.get(
         setting || {}
       );
     } catch (error) {
-      return res.status(500).json({
-        message:
-          error.message
-      });
+      return res
+        .status(500)
+        .json({
+          message:
+            error.message
+        });
     }
   }
 );
@@ -777,7 +928,10 @@ app.get(
 app.put(
   '/api/settings',
   authMiddleware,
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       let setting =
         await Setting.findOne();
@@ -789,12 +943,15 @@ app.put(
             req.body,
             {
               new: true,
-              runValidators: true
+              runValidators:
+                true
             }
           );
       } else {
         setting =
-          new Setting(req.body);
+          new Setting(
+            req.body
+          );
 
         await setting.save();
       }
@@ -803,10 +960,12 @@ app.put(
         setting
       );
     } catch (error) {
-      return res.status(400).json({
-        message:
-          error.message
-      });
+      return res
+        .status(400)
+        .json({
+          message:
+            error.message
+        });
     }
   }
 );
@@ -816,11 +975,16 @@ app.put(
 ===================================================== */
 
 app.use(
-  (req, res) => {
-    return res.status(404).json({
-      message:
-        'Route not found'
-    });
+  (
+    req,
+    res
+  ) => {
+    return res
+      .status(404)
+      .json({
+        message:
+          'Route not found'
+      });
   }
 );
 
@@ -829,19 +993,26 @@ app.use(
 ===================================================== */
 
 app.use(
-  (err, req, res, next) => {
+  (
+    err,
+    req,
+    res,
+    next
+  ) => {
     console.error(
       'Server error:',
       err
     );
 
-    return res.status(500).json({
-      message:
-        process.env.NODE_ENV !==
-        'production'
-          ? err.message
-          : 'Internal server error'
-    });
+    return res
+      .status(500)
+      .json({
+        message:
+          process.env.NODE_ENV !==
+          'production'
+            ? err.message
+            : 'Internal server error'
+      });
   }
 );
 
