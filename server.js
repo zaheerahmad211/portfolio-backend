@@ -1,3 +1,4 @@
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -31,16 +32,25 @@ const app = express();
    CORS
 ===================================================== */
 
+// Current production frontend + local development
 const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+
+  // Current Vercel frontend
+  'https://portfolio-frontend-one-woad-13.vercel.app',
+
+  // Vercel environment variable
   process.env.CLIENT_URL
 ].filter(Boolean);
+
+console.log('Allowed CORS Origins:', allowedOrigins);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman, Thunder Client and server-to-server requests
+      // Allow requests without an Origin
+      // e.g. Postman, Thunder Client, server-to-server
       if (!origin) {
         return callback(null, true);
       }
@@ -49,18 +59,49 @@ app.use(
         return callback(null, true);
       }
 
-      return callback(new Error(`CORS blocked: ${origin}`));
+      console.error('CORS blocked origin:', origin);
+
+      return callback(
+        new Error(`CORS blocked: ${origin}`)
+      );
     },
-    credentials: true
+
+    credentials: true,
+
+    methods: [
+      'GET',
+      'POST',
+      'PUT',
+      'DELETE',
+      'OPTIONS'
+    ],
+
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization'
+    ]
   })
 );
+
+// Explicitly handle browser preflight requests
+app.options('*', cors());
 
 /* =====================================================
    BODY PARSER
 ===================================================== */
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb'
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: '10mb'
+  })
+);
 
 /* =====================================================
    LOCAL FILE UPLOADS
@@ -69,17 +110,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 let upload = null;
 
-if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !__dirname.includes('/var/task')) {
-  const uploadsPath = path.join(__dirname, 'uploads');
+if (
+  process.env.NODE_ENV !== 'production' &&
+  !process.env.VERCEL &&
+  !__dirname.includes('/var/task')
+) {
+  const uploadsPath = path.join(
+    __dirname,
+    'uploads'
+  );
 
-  // This code runs ONLY locally
   if (!fs.existsSync(uploadsPath)) {
     try {
       fs.mkdirSync(uploadsPath, {
         recursive: true
       });
     } catch (err) {
-      console.error('Failed to create uploads directory:', err);
+      console.error(
+        'Failed to create uploads directory:',
+        err
+      );
     }
   }
 
@@ -109,6 +159,7 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !__dirname.i
 
   upload = multer({
     storage,
+
     limits: {
       fileSize: 5 * 1024 * 1024
     }
@@ -122,7 +173,9 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !__dirname.i
 let dbPromise = null;
 
 const connectDB = async () => {
-  if (mongoose.connection.readyState === 1) {
+  if (
+    mongoose.connection.readyState === 1
+  ) {
     return;
   }
 
@@ -151,7 +204,10 @@ const connectDB = async () => {
       'admin123';
 
     const hashedPassword =
-      await bcrypt.hash(password, 10);
+      await bcrypt.hash(
+        password,
+        10
+      );
 
     await Admin.create({
       email:
@@ -183,9 +239,11 @@ const connectDB = async () => {
       bio:
         'Professional MERN Stack Developer crafting modern and responsive digital experiences.',
 
-      email: 'zaheer@example.com',
+      email:
+        'zaheer@example.com',
 
-      location: 'Pakistan',
+      location:
+        'Pakistan',
 
       github:
         'https://github.com',
@@ -206,12 +264,13 @@ const connectDB = async () => {
 
 const ensureDB = async () => {
   if (!dbPromise) {
-    dbPromise = connectDB().catch(
-      (error) => {
-        dbPromise = null;
-        throw error;
-      }
-    );
+    dbPromise =
+      connectDB().catch(
+        (error) => {
+          dbPromise = null;
+          throw error;
+        }
+      );
   }
 
   return dbPromise;
@@ -232,9 +291,10 @@ app.use(
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         message:
           'Database connection failed',
+
         error:
           process.env.NODE_ENV !==
           'production'
@@ -249,20 +309,31 @@ app.use(
    HEALTH CHECK
 ===================================================== */
 
-app.get('/', (req, res) => {
-  res.json({
-    message:
-      'Portfolio Backend is running',
-    status: 'success'
-  });
-});
+app.get(
+  '/',
+  (req, res) => {
+    res.json({
+      message:
+        'Portfolio Backend is running',
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'Backend is healthy'
-  });
-});
+      status:
+        'success'
+    });
+  }
+);
+
+app.get(
+  '/api/health',
+  (req, res) => {
+    res.json({
+      status:
+        'OK',
+
+      message:
+        'Backend is healthy'
+    });
+  }
+);
 
 /* =====================================================
    AUTH LOGIN
@@ -277,7 +348,10 @@ app.post(
         password
       } = req.body;
 
-      if (!email || !password) {
+      if (
+        !email ||
+        !password
+      ) {
         return res.status(400).json({
           message:
             'Email and password are required'
@@ -285,7 +359,9 @@ app.post(
       }
 
       const admin =
-        await Admin.findOne({ email });
+        await Admin.findOne({
+          email
+        });
 
       if (!admin) {
         return res.status(400).json({
@@ -307,27 +383,31 @@ app.post(
         });
       }
 
-      const token = jwt.sign(
-        {
-          id: admin._id
-        },
+      const token =
+        jwt.sign(
+          {
+            id: admin._id
+          },
 
-        process.env.JWT_SECRET ||
-          'fallback_secret',
+          process.env.JWT_SECRET ||
+            'fallback_secret',
 
-        {
-          expiresIn:
-            process.env.JWT_EXPIRE ||
-            '1d'
-        }
-      );
+          {
+            expiresIn:
+              process.env.JWT_EXPIRE ||
+              '1d'
+          }
+        );
 
       return res.json({
         token,
 
         admin: {
-          id: admin._id,
-          email: admin.email
+          id:
+            admin._id,
+
+          email:
+            admin.email
         }
       });
     } catch (error) {
@@ -365,9 +445,15 @@ if (upload) {
         }
 
         return res.json({
-          url: `/uploads/${req.file.filename}`
+          url:
+            `/uploads/${req.file.filename}`
         });
       } catch (error) {
+        console.error(
+          'File upload error:',
+          error
+        );
+
         return res.status(500).json({
           message:
             'File upload failed'
@@ -617,7 +703,9 @@ app.get(
           createdAt: -1
         });
 
-      return res.json(messages);
+      return res.json(
+        messages
+      );
     } catch (error) {
       return res.status(500).json({
         message:
@@ -711,7 +799,9 @@ app.put(
         await setting.save();
       }
 
-      return res.json(setting);
+      return res.json(
+        setting
+      );
     } catch (error) {
       return res.status(400).json({
         message:
@@ -764,7 +854,8 @@ if (
   'production'
 ) {
   const PORT =
-    process.env.PORT || 5000;
+    process.env.PORT ||
+    5000;
 
   app.listen(
     PORT,
