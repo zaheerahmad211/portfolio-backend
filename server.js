@@ -39,11 +39,17 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
+      // Allow requests without an Origin header
+      // such as Postman, Thunder Client, server-to-server requests
+      if (!origin) {
+        return callback(null, true);
       }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Not allowed by CORS'));
     },
     credentials: true
   })
@@ -53,35 +59,34 @@ app.use(
    Middleware
 ========================= */
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 /* =========================
-   Uploads - Local Development
+   Local Uploads
+   Only enabled during local development
 ========================= */
 
-const uploadsPath = path.join(__dirname, 'uploads');
+let upload = null;
 
 if (process.env.NODE_ENV !== 'production') {
+  const uploadsPath = path.join(__dirname, 'uploads');
+
   if (!fs.existsSync(uploadsPath)) {
     fs.mkdirSync(uploadsPath, { recursive: true });
   }
 
   app.use('/uploads', express.static(uploadsPath));
-}
 
-/* =========================
-   Multer
-========================= */
-
-let upload;
-
-if (process.env.NODE_ENV !== 'production') {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      cb(null, 'uploads/');
+      cb(null, uploadsPath);
     },
+
     filename: (req, file, cb) => {
-      cb(null, Date.now() + path.extname(file.originalname));
+      cb(
+        null,
+        Date.now() + path.extname(file.originalname)
+      );
     }
   });
 
@@ -92,9 +97,10 @@ if (process.env.NODE_ENV !== 'production') {
    MongoDB
 ========================= */
 
-let dbPromise;
+let dbPromise = null;
 
 const connectDB = async () => {
+  // Already connected
   if (mongoose.connection.readyState === 1) {
     return;
   }
@@ -104,9 +110,13 @@ const connectDB = async () => {
   }
 
   await mongoose.connect(process.env.MONGO_URI);
+
   console.log('MongoDB connected');
 
-  // Create default admin if none exists
+  /* =========================
+     Create Default Admin
+  ========================= */
+
   const adminCount = await Admin.countDocuments();
 
   if (adminCount === 0) {
@@ -116,24 +126,38 @@ const connectDB = async () => {
     );
 
     await Admin.create({
-      email: process.env.ADMIN_EMAIL || 'admin@example.com',
+      email:
+        process.env.ADMIN_EMAIL ||
+        'admin@example.com',
+
       password: hashedPassword
     });
 
     console.log('Default admin created');
   }
 
-  // Seed initial settings if none
+  /* =========================
+     Initial Settings
+  ========================= */
+
   const settingCount = await Setting.countDocuments();
 
   if (settingCount === 0) {
     await Setting.create({
       name: 'Zaheer Ahmed',
-      title: 'Website Developer / MERN Stack Developer',
-      bio: 'Professional MERN stack developer crafting modern digital experiences.',
+
+      title:
+        'Website Developer / MERN Stack Developer',
+
+      bio:
+        'Professional MERN stack developer crafting modern digital experiences.',
+
       email: 'zaheer@example.com',
+
       location: 'Pakistan',
+
       github: 'https://github.com',
+
       linkedin: 'https://linkedin.com'
     });
 
@@ -152,12 +176,20 @@ const ensureDB = async () => {
   return dbPromise;
 };
 
+/* =========================
+   Database Middleware
+========================= */
+
 app.use(async (req, res, next) => {
   try {
     await ensureDB();
     next();
   } catch (error) {
-    console.error('Database connection error:', error);
+    console.error(
+      'Database connection error:',
+      error
+    );
+
     res.status(500).json({
       message: 'Database connection failed'
     });
@@ -198,7 +230,10 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(password, admin.password);
+    const isMatch = await bcrypt.compare(
+      password,
+      admin.password
+    );
 
     if (!isMatch) {
       return res.status(400).json({
@@ -207,18 +242,29 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: admin._id },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '1d' }
+      {
+        id: admin._id
+      },
+
+      process.env.JWT_SECRET ||
+        'fallback_secret',
+
+      {
+        expiresIn:
+          process.env.JWT_EXPIRE || '1d'
+      }
     );
 
     res.json({
       token,
+
       admin: {
         email: admin.email
       }
     });
   } catch (error) {
+    console.error('Login error:', error);
+
     res.status(500).json({
       message: error.message
     });
@@ -230,195 +276,327 @@ app.post('/api/auth/login', async (req, res) => {
 ========================= */
 
 if (upload) {
+  // Local development upload
   app.post(
     '/api/upload',
     authMiddleware,
     upload.single('file'),
     (req, res) => {
-      if (req.file) {
-        res.json({
-          url: `/uploads/${req.file.filename}`
-        });
-      } else {
-        res.status(400).json({
+      if (!req.file) {
+        return res.status(400).json({
           message: 'No file uploaded'
+        });
+      }
+
+      res.json({
+        url: `/uploads/${req.file.filename}`
+      });
+    }
+  );
+} else {
+  // Vercel production
+  app.post(
+    '/api/upload',
+    authMiddleware,
+    (req, res) => {
+      res.status(501).json({
+        message:
+          'File uploads are disabled in production. Use Cloudinary or another cloud storage service.'
+      });
+    }
+  );
+}
+
+/* =========================
+   Generic CRUD Routes
+========================= */
+
+const createCrudRoutes = (
+  Model,
+  routePath
+) => {
+  /* GET */
+  app.get(
+    `/api/${routePath}`,
+    async (req, res) => {
+      try {
+        const items = await Model.find().sort({
+          createdAt: -1
+        });
+
+        res.json(items);
+      } catch (error) {
+        res.status(500).json({
+          message: error.message
         });
       }
     }
   );
-} else {
-  app.post('/api/upload', authMiddleware, (req, res) => {
-    res.status(501).json({
-      message:
-        'Local file uploads are disabled in production. Use Cloudinary or another cloud storage service.'
-    });
-  });
-}
 
-/* =========================
-   Generic CRUD
-========================= */
+  /* POST */
+  app.post(
+    `/api/${routePath}`,
+    authMiddleware,
+    async (req, res) => {
+      try {
+        const newItem = new Model(req.body);
 
-const createCrudRoutes = (Model, routePath) => {
-  app.get(`/api/${routePath}`, async (req, res) => {
-    try {
-      const items = await Model.find().sort({ createdAt: -1 });
-      res.json(items);
-    } catch (error) {
-      res.status(500).json({
-        message: error.message
-      });
+        const savedItem =
+          await newItem.save();
+
+        res.status(201).json(savedItem);
+      } catch (error) {
+        res.status(400).json({
+          message: error.message
+        });
+      }
     }
-  });
+  );
 
-  app.post(`/api/${routePath}`, authMiddleware, async (req, res) => {
-    try {
-      const newItem = new Model(req.body);
-      const savedItem = await newItem.save();
+  /* PUT */
+  app.put(
+    `/api/${routePath}/:id`,
+    authMiddleware,
+    async (req, res) => {
+      try {
+        const updatedItem =
+          await Model.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            {
+              new: true
+            }
+          );
 
-      res.status(201).json(savedItem);
-    } catch (error) {
-      res.status(400).json({
-        message: error.message
-      });
+        res.json(updatedItem);
+      } catch (error) {
+        res.status(400).json({
+          message: error.message
+        });
+      }
     }
-  });
+  );
 
-  app.put(`/api/${routePath}/:id`, authMiddleware, async (req, res) => {
-    try {
-      const updatedItem = await Model.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {
-          new: true
-        }
-      );
+  /* DELETE */
+  app.delete(
+    `/api/${routePath}/:id`,
+    authMiddleware,
+    async (req, res) => {
+      try {
+        await Model.findByIdAndDelete(
+          req.params.id
+        );
 
-      res.json(updatedItem);
-    } catch (error) {
-      res.status(400).json({
-        message: error.message
-      });
+        res.json({
+          message: 'Deleted successfully'
+        });
+      } catch (error) {
+        res.status(500).json({
+          message: error.message
+        });
+      }
     }
-  });
-
-  app.delete(`/api/${routePath}/:id`, authMiddleware, async (req, res) => {
-    try {
-      await Model.findByIdAndDelete(req.params.id);
-
-      res.json({
-        message: 'Deleted successfully'
-      });
-    } catch (error) {
-      res.status(500).json({
-        message: error.message
-      });
-    }
-  });
+  );
 };
 
-createCrudRoutes(Project, 'projects');
-createCrudRoutes(Certification, 'certifications');
-createCrudRoutes(Achievement, 'achievements');
-createCrudRoutes(Experience, 'experience');
-createCrudRoutes(Skill, 'skills');
-createCrudRoutes(Service, 'services');
-createCrudRoutes(Education, 'education');
+/* =========================
+   CRUD Collections
+========================= */
+
+createCrudRoutes(
+  Project,
+  'projects'
+);
+
+createCrudRoutes(
+  Certification,
+  'certifications'
+);
+
+createCrudRoutes(
+  Achievement,
+  'achievements'
+);
+
+createCrudRoutes(
+  Experience,
+  'experience'
+);
+
+createCrudRoutes(
+  Skill,
+  'skills'
+);
+
+createCrudRoutes(
+  Service,
+  'services'
+);
+
+createCrudRoutes(
+  Education,
+  'education'
+);
 
 /* =========================
    Messages
 ========================= */
 
-app.post('/api/messages', async (req, res) => {
-  try {
-    const newMessage = new Message(req.body);
-    await newMessage.save();
+/* Public */
+app.post(
+  '/api/messages',
+  async (req, res) => {
+    try {
+      const newMessage =
+        new Message(req.body);
 
-    res.status(201).json({
-      message: 'Message sent successfully'
-    });
-  } catch (error) {
-    res.status(400).json({
-      message: error.message
-    });
+      await newMessage.save();
+
+      res.status(201).json({
+        message:
+          'Message sent successfully'
+      });
+    } catch (error) {
+      res.status(400).json({
+        message: error.message
+      });
+    }
   }
-});
+);
 
-app.get('/api/messages', authMiddleware, async (req, res) => {
-  try {
-    res.json(
-      await Message.find().sort({
-        createdAt: -1
-      })
-    );
-  } catch (error) {
-    res.status(500).json({
-      message: error.message
-    });
+/* Admin */
+app.get(
+  '/api/messages',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const messages =
+        await Message.find().sort({
+          createdAt: -1
+        });
+
+      res.json(messages);
+    } catch (error) {
+      res.status(500).json({
+        message: error.message
+      });
+    }
   }
-});
+);
 
-app.delete('/api/messages/:id', authMiddleware, async (req, res) => {
-  try {
-    await Message.findByIdAndDelete(req.params.id);
+/* Admin */
+app.delete(
+  '/api/messages/:id',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      await Message.findByIdAndDelete(
+        req.params.id
+      );
 
-    res.json({
-      message: 'Deleted'
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: error.message
-    });
+      res.json({
+        message: 'Deleted'
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: error.message
+      });
+    }
   }
-});
+);
 
 /* =========================
    Settings
 ========================= */
 
-app.get('/api/settings', async (req, res) => {
-  try {
-    const setting = await Setting.findOne();
-    res.json(setting || {});
-  } catch (error) {
-    res.status(500).json({
-      message: error.message
-    });
-  }
-});
+/* Public */
+app.get(
+  '/api/settings',
+  async (req, res) => {
+    try {
+      const setting =
+        await Setting.findOne();
 
-app.put('/api/settings', authMiddleware, async (req, res) => {
-  try {
-    let setting = await Setting.findOne();
-
-    if (setting) {
-      setting = await Setting.findByIdAndUpdate(
-        setting._id,
-        req.body,
-        { new: true }
-      );
-    } else {
-      setting = new Setting(req.body);
-      await setting.save();
+      res.json(setting || {});
+    } catch (error) {
+      res.status(500).json({
+        message: error.message
+      });
     }
+  }
+);
 
-    res.json(setting);
-  } catch (error) {
-    res.status(400).json({
-      message: error.message
+/* Admin */
+app.put(
+  '/api/settings',
+  authMiddleware,
+  async (req, res) => {
+    try {
+      let setting =
+        await Setting.findOne();
+
+      if (setting) {
+        setting =
+          await Setting.findByIdAndUpdate(
+            setting._id,
+            req.body,
+            {
+              new: true
+            }
+          );
+      } else {
+        setting = new Setting(req.body);
+
+        await setting.save();
+      }
+
+      res.json(setting);
+    } catch (error) {
+      res.status(400).json({
+        message: error.message
+      });
+    }
+  }
+);
+
+/* =========================
+   404 Handler
+========================= */
+
+app.use((req, res) => {
+  res.status(404).json({
+    message: 'Route not found'
+  });
+});
+
+/* =========================
+   Error Handler
+========================= */
+
+app.use(
+  (err, req, res, next) => {
+    console.error(err);
+
+    res.status(500).json({
+      message:
+        err.message ||
+        'Internal server error'
     });
   }
-});
+);
 
 /* =========================
    Local Server
 ========================= */
 
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
+  const PORT =
+    process.env.PORT || 5000;
 
   app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(
+      `Server running on port ${PORT}`
+    );
   });
 }
 
