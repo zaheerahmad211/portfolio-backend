@@ -69,14 +69,18 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 let upload = null;
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !__dirname.includes('/var/task')) {
   const uploadsPath = path.join(__dirname, 'uploads');
 
   // This code runs ONLY locally
   if (!fs.existsSync(uploadsPath)) {
-    fs.mkdirSync(uploadsPath, {
-      recursive: true
-    });
+    try {
+      fs.mkdirSync(uploadsPath, {
+        recursive: true
+      });
+    } catch (err) {
+      console.error('Failed to create uploads directory:', err);
+    }
   }
 
   app.use(
